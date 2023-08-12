@@ -1,6 +1,7 @@
 #include "get_my_mac.h"
 
-bool get_my_mac(const std::string& if_name, uint8_t mac_addr_buf[6]) {
+bool get_my_mac(char * ether_name, uint8_t mac_addr_buf[6]) {
+    const std::string if_name = (const std::string) ether_name;
     std::string mac_addr;
     std::ifstream iface("/sys/class/net/" + if_name + "/address");
     std::string str((std::istreambuf_iterator<char>(iface)), std::istreambuf_iterator<char>());

