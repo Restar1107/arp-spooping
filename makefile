@@ -17,7 +17,11 @@ get_my_ip.o: get_my_ip.h get_my_ip.cpp
 
 mac.o : mac.h mac.cpp
 
-send-arp-test: main.o arphdr.o ethhdr.o ip.o mac.o get_my_ip.o get_my_mac.o
+send_arp_packet.o : send_arp_packet.h send_arp_packet.cpp
+
+cap_mac.o: cap_mac.h cap_mac.cpp
+
+send-arp-test: main.o arphdr.o ethhdr.o ip.o mac.o get_my_ip.o get_my_mac.o send_arp_packet.o cap_mac.o
 	$(LINK.cc) $^ $(LOADLIBES) $(LDLIBS) -o $@
 
 clean:
