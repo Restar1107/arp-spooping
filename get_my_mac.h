@@ -5,4 +5,4 @@
 #include <stdint.h>
 #define MAC_ADDR_LEN 6 
 
-bool get_my_mac(const std::string& if_name, uint8_t *mac_addr_buf);
+bool get_my_mac(char *ether_name, uint8_t *mac_addr_buf);
